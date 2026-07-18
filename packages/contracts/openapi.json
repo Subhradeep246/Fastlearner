@@ -1,0 +1,45 @@
+{
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "FastLearner API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "operationId": "get_health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    }
+  }
+}

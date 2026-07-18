@@ -1,0 +1,16 @@
+[workspace]
+members = ["apps/desktop/src-tauri", "crates/wake-detector"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+rust-version = "1.88"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "deny"
+pedantic = "warn"

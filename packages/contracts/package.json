@@ -1,0 +1,17 @@
+{
+  "name": "@fastlearner/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "openapi-typescript openapi.json -o src/generated/schema.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.6.1"
+  }
+}

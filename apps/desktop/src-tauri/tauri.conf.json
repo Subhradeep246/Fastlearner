@@ -1,0 +1,19 @@
+{
+  "productName": "FastLearner",
+  "version": "0.1.0",
+  "identifier": "app.fastlearner.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{ "title": "FastLearner", "width": 1100, "height": 720 }],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' https://api.fastlearner.app; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      "devCsp": "default-src 'self'; connect-src 'self' http://localhost:1420 http://127.0.0.1:1420 http://localhost:8000 http://127.0.0.1:8000 ws://localhost:1420; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'"
+    }
+  },
+  "bundle": { "active": true, "targets": "all", "icon": [] }
+}

@@ -1,0 +1,12 @@
+node_modules
+dist
+.venv
+.vscode
+apps/desktop/app-icon.svg
+apps/desktop/src-tauri/gen
+packages/contracts/openapi.json
+packages/contracts/src/generated
+Cargo.lock
+package-lock.json
+uv.lock
+adaptive-learning-app-spec.md

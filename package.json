@@ -1,0 +1,50 @@
+{
+  "name": "fastlearner",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@10.9.2",
+  "engines": {
+    "node": ">=22.13.0 <23"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tests/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test:js": "npm run test --workspaces --if-present",
+    "test:python": "uv run --project services/api pytest",
+    "test:rust": "cargo test --workspace --locked",
+    "dev:local": "uv run --project services/api python -m app.devtools.local start",
+    "dev:services": "uv run --project services/api python -m app.devtools.local start --services-only",
+    "dev:reset": "uv run --project services/api python -m app.devtools.local reset",
+    "local:check": "uv run --project services/api python -m app.devtools.local check --desktop",
+    "db:migrate": "uv run --project services/api python -m app.devtools.local migrate",
+    "db:seed": "uv run --project services/api python -m app.devtools.local seed",
+    "api:dev": "uv run --project services/api uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload",
+    "worker": "uv run --project services/api python -m app.devtools.local worker",
+    "test:services": "npm run db:migrate && npm run db:seed && npm run test:python",
+    "lint:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings",
+    "lint:js": "eslint . --max-warnings 0",
+    "lint:python": "uv run --project services/api ruff check services/api",
+    "format:check": "prettier --check .",
+    "contracts:generate": "uv run --project services/api python scripts/export_openapi.py && npm run generate --workspace @fastlearner/contracts",
+    "contracts:check": "npm run contracts:generate && node scripts/assert-clean-generated.mjs",
+    "conformance": "npm run test --workspace @fastlearner/conformance",
+    "ci:js": "npm run lint:js && npm run typecheck && npm run test:js && npm run build",
+    "ci:python": "npm run lint:python && uv run --project services/api mypy services/api/app && npm run test:python",
+    "ci:rust": "npm run lint:rust && npm run test:rust",
+    "ci": "npm run contracts:check && npm run format:check && npm run ci:js && npm run ci:python && npm run ci:rust"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "eslint": "9.39.5",
+    "globals": "16.0.0",
+    "prettier": "3.5.3",
+    "typescript": "5.8.2",
+    "typescript-eslint": "8.26.0",
+    "vitest": "3.2.7"
+  }
+}

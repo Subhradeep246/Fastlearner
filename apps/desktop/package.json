@@ -1,0 +1,26 @@
+{
+  "name": "@fastlearner/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@fastlearner/ui": "0.1.0",
+    "@tauri-apps/api": "2.11.1",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4",
+    "@types/react": "19.1.0",
+    "@types/react-dom": "19.1.1",
+    "@vitejs/plugin-react": "4.4.1",
+    "vite": "6.4.3"
+  }
+}

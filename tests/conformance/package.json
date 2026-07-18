@@ -1,0 +1,13 @@
+{
+  "name": "@fastlearner/conformance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.10"
+  }
+}
