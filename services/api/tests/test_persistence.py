@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from uuid import UUID
 
 import pytest
 from sqlalchemy import create_engine, func, select, text

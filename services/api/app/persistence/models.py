@@ -188,7 +188,7 @@ content_items = Table(
     UniqueConstraint("concept_id", "kind", "version", name="uq_content_items_version"),
     UniqueConstraint("checksum", name="uq_content_items_checksum"),
     status_check("content_kind", ("lesson", "hint", "explanation"), "kind"),
-    status_check("content_status", ("draft", "published", "retired")),
+    status_check("content_status", ("draft", "reviewed", "published", "retired")),
 )
 question_versions = Table(
     "question_versions", metadata,
@@ -206,7 +206,7 @@ question_versions = Table(
     *timestamps(),
     UniqueConstraint("question_key", "version", name="uq_question_versions_key_version"),
     UniqueConstraint("checksum", name="uq_question_versions_checksum"),
-    status_check("question_status", ("draft", "published", "retired")),
+    status_check("question_status", ("draft", "reviewed", "published", "retired")),
 )
 content_reviews = Table(
     "content_reviews", metadata,

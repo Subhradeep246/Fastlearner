@@ -13,6 +13,7 @@ from uuid import UUID
 
 from sqlalchemy import Connection, and_, select
 
+from app.repositories.scoping import owner_predicate, owner_scoped_select
 from app.domain.identity import (
     Device,
     DeviceStatus,
@@ -139,7 +140,7 @@ class SqlIdentityRepository(IdentityRepository):
     # -- profiles ----------------------------------------------------------
     def get_profile(self, owner_user_id: UUID) -> Profile | None:
         row = self._connection.execute(
-            select(profiles).where(profiles.c.owner_user_id == owner_user_id)
+            owner_scoped_select(profiles, owner_user_id)
         ).first()
         if row is None:
             return None
@@ -179,15 +180,13 @@ class SqlIdentityRepository(IdentityRepository):
     # -- devices -----------------------------------------------------------
     def list_devices(self, owner_user_id: UUID) -> list[Device]:
         rows = self._connection.execute(
-            select(devices).where(devices.c.owner_user_id == owner_user_id)
+            owner_scoped_select(devices, owner_user_id)
         ).all()
         return [_device_from_row(row) for row in rows]
 
     def get_device(self, owner_user_id: UUID, device_id: UUID) -> Device | None:
         row = self._connection.execute(
-            select(devices).where(
-                and_(devices.c.owner_user_id == owner_user_id, devices.c.id == device_id)
-            )
+            owner_scoped_select(devices, owner_user_id, devices.c.id == device_id)
         ).first()
         return _device_from_row(row) if row is not None else None
 
@@ -211,7 +210,7 @@ class SqlIdentityRepository(IdentityRepository):
     ) -> Device | None:
         result = self._connection.execute(
             devices.update()
-            .where(and_(devices.c.owner_user_id == owner_user_id, devices.c.id == device_id))
+            .where(and_(owner_predicate(devices, owner_user_id), devices.c.id == device_id))
             .values(status=status.value, updated_at=datetime.now(timezone.utc))
         )
         if result.rowcount == 0:
@@ -220,10 +219,10 @@ class SqlIdentityRepository(IdentityRepository):
 
     # -- relationships -----------------------------------------------------
     def list_relationships(self, learner_user_id: UUID) -> list[Relationship]:
+        # owner_user_id == learner_user_id by table constraint, so the owner
+        # predicate is the authoritative scope for a learner's relationships.
         rows = self._connection.execute(
-            select(user_relationships).where(
-                user_relationships.c.learner_user_id == learner_user_id
-            )
+            owner_scoped_select(user_relationships, learner_user_id)
         ).all()
         return [_relationship_from_row(row) for row in rows]
 
@@ -231,11 +230,10 @@ class SqlIdentityRepository(IdentityRepository):
         self, learner_user_id: UUID, relationship_id: UUID
     ) -> Relationship | None:
         row = self._connection.execute(
-            select(user_relationships).where(
-                and_(
-                    user_relationships.c.learner_user_id == learner_user_id,
-                    user_relationships.c.id == relationship_id,
-                )
+            owner_scoped_select(
+                user_relationships,
+                learner_user_id,
+                user_relationships.c.id == relationship_id,
             )
         ).first()
         return _relationship_from_row(row) if row is not None else None
@@ -277,7 +275,7 @@ class SqlIdentityRepository(IdentityRepository):
             user_relationships.update()
             .where(
                 and_(
-                    user_relationships.c.learner_user_id == learner_user_id,
+                    owner_predicate(user_relationships, learner_user_id),
                     user_relationships.c.id == relationship_id,
                 )
             )

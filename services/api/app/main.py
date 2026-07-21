@@ -1,19 +1,29 @@
-from contextlib import asynccontextmanager
-from typing import AsyncIterator, Literal
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import AsyncIterator, Callable
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from sqlalchemy import Engine, create_engine
 
+from app.api.errors import register_exception_handlers
+from app.api.middleware import RequestIdMiddleware
+from app.api.routers import health as health_router
+from app.api.routers import identity as identity_router
+from app.auth.identity import IdentityProvider, LocalIdentityProvider
+from app.auth.policy import PolicyEngine
+from app.auth.sessions import SessionSigner
 from app.config import Settings, load_settings
 from app.persistence.checks import check_database_url
 
+#: Fixed loopback-only development signing secret used when none is configured.
+#: Local auth is forbidden in production (see ``LocalIdentityProvider``), so this
+#: default never applies to a deployed environment.
+_LOCAL_DEV_SIGNING_SECRET = "local-development-session-signing-secret"
 
-class HealthResponse(BaseModel):
-    status: Literal["ok"]
 
-
-def _lifespan(settings: Settings):
+def _lifespan(
+    settings: Settings,
+) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         if settings.database_url is not None:
@@ -23,7 +33,29 @@ def _lifespan(settings: Settings):
     return lifespan
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def _build_engine(settings: Settings) -> Engine | None:
+    if settings.database_url is None:
+        return None
+    return create_engine(settings.database_url.get_secret_value(), pool_pre_ping=True)
+
+
+def _build_identity_provider(settings: Settings) -> IdentityProvider | None:
+    if settings.auth_mode != "local" or settings.environment == "production":
+        return None
+    secret = (
+        settings.session_signing_secret.get_secret_value()
+        if settings.session_signing_secret is not None
+        else _LOCAL_DEV_SIGNING_SECRET
+    )
+    return LocalIdentityProvider(SessionSigner(secret), environment=settings.environment)
+
+
+def create_app(
+    settings: Settings | None = None,
+    *,
+    engine: Engine | None = None,
+    identity_provider: IdentityProvider | None = None,
+) -> FastAPI:
     runtime_settings = settings or load_settings()
     application = FastAPI(
         title="FastLearner API",
@@ -31,6 +63,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=_lifespan(runtime_settings),
     )
     application.state.settings = runtime_settings
+    application.state.engine = engine if engine is not None else _build_engine(runtime_settings)
+    application.state.identity_provider = (
+        identity_provider
+        if identity_provider is not None
+        else _build_identity_provider(runtime_settings)
+    )
+    application.state.policy_engine = PolicyEngine()
+
+    application.add_middleware(RequestIdMiddleware)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=list(runtime_settings.allowed_origins),
@@ -39,9 +80,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    @application.get("/v1/health", operation_id="get_health")
-    def health() -> HealthResponse:
-        return HealthResponse(status="ok")
+    register_exception_handlers(application)
+    application.include_router(health_router.router)
+    application.include_router(identity_router.router)
 
     return application
 

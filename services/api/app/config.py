@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     ai_model: str | None = None
     ai_api_key: SecretStr | None = None
     embedding_model: str | None = None
+    ai_base_url: str = "https://api.openai.com/v1"
+    ai_transcription_model: str | None = None
+    ai_speech_model: str | None = None
+    ai_request_timeout_seconds: float = 30.0
     app_encryption_key: SecretStr | None = None
     session_signing_secret: SecretStr | None = None
 

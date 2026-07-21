@@ -224,6 +224,21 @@ class AuthorizationError(IdentityError):
         super().__init__(message)
 
 
+class NotFoundError(IdentityError):
+    """A resource is absent within the authorized owner scope.
+
+    This error is deliberately scope-safe: it renders the same not-found shape
+    whether the resource does not exist at all or exists under another owner
+    scope. Callers must never branch on which case occurred, so cross-owner
+    existence is never disclosed (Requirements 17.12 and 20.9).
+    """
+
+    code = "not_found"
+
+    def __init__(self, message: str = "The requested resource was not found.") -> None:
+        super().__init__(message)
+
+
 class ValidationError(IdentityError):
     """A field-level validation failure that must not change canonical state."""
 

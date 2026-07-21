@@ -4,6 +4,7 @@ Provides retry/backoff and dead-letter policy, a best-effort queue relay, and a
 lease-based durable worker that recovers work after worker failure.
 """
 
+from app.workers.handlers import Embedder, GraphMemoryJobHandlers
 from app.workers.policy import (
     DEFAULT_POLICY,
     POLICIES,
@@ -20,6 +21,8 @@ __all__ = [
     "DEFAULT_POLICY",
     "POLICIES",
     "DurableWorker",
+    "Embedder",
+    "GraphMemoryJobHandlers",
     "Handler",
     "InMemoryQueue",
     "JobContext",

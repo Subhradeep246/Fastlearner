@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
+from app.auth.policy import AccessMode, PolicyEngine, ResourceKind
 from app.domain.identity import (
     ActorContext,
     AuthorizationError,
@@ -21,6 +22,7 @@ from app.domain.identity import (
     DeviceStatus,
     GRANTABLE_OBSERVER_SCOPES,
     LEARNER_OWNER_SCOPES,
+    NotFoundError,
     Profile,
     Relationship,
     RelationshipRole,
@@ -37,10 +39,20 @@ def _now(at: datetime | None = None) -> datetime:
 
 
 class IdentityService:
-    """Use cases for learner identity, profile, devices, and relationships."""
+    """Use cases for learner identity, profile, devices, and relationships.
 
-    def __init__(self, repository: IdentityRepository) -> None:
+    Every use case that touches learner data consults the centralized
+    :class:`PolicyEngine` before it performs a body-driven lookup or a mutation,
+    so authorization decisions are made in exactly one place and cannot be
+    bypassed by ordering. Repository reads and writes always carry the resolved
+    owner predicate, and absence is reported scope-safely.
+    """
+
+    def __init__(
+        self, repository: IdentityRepository, policy: PolicyEngine | None = None
+    ) -> None:
         self._repository = repository
+        self._policy = policy or PolicyEngine()
 
     # -- owner scope resolution -------------------------------------------
     def resolve_actor_context(
@@ -81,10 +93,13 @@ class IdentityService:
         raise AuthorizationError()
 
     # -- profile -----------------------------------------------------------
-    def get_profile(self, actor: ActorContext) -> Profile:
+    def get_profile(self, actor: ActorContext, *, request_id: str | None = None) -> Profile:
+        self._policy.authorize(
+            actor, AccessMode.READ, ResourceKind.PROFILE, request_id=request_id
+        )
         profile = self._repository.get_profile(actor.owner_id)
         if profile is None:
-            raise AuthorizationError("No profile is available for the authorized scope.")
+            raise NotFoundError("No profile is available for the authorized scope.")
         return profile
 
     def update_profile(
@@ -94,11 +109,14 @@ class IdentityService:
         grade_level: int | None = None,
         timezone: str | None = None,
         study_preferences: dict[str, Any] | None = None,
+        request_id: str | None = None,
     ) -> Profile:
-        self._require_owner(actor)
+        self._policy.authorize(
+            actor, AccessMode.WRITE, ResourceKind.PROFILE, request_id=request_id
+        )
         current = self._repository.get_profile(actor.owner_id)
         if current is None:
-            raise AuthorizationError("No profile is available for the authorized scope.")
+            raise NotFoundError("No profile is available for the authorized scope.")
 
         next_grade = current.grade_level if grade_level is None else validate_grade_level(grade_level)
         next_timezone = current.timezone if timezone is None else _validate_timezone(timezone)
@@ -113,8 +131,22 @@ class IdentityService:
         return self._repository.upsert_profile(updated)
 
     # -- devices -----------------------------------------------------------
-    def list_devices(self, actor: ActorContext) -> list[Device]:
+    def list_devices(self, actor: ActorContext, *, request_id: str | None = None) -> list[Device]:
+        self._policy.authorize(
+            actor, AccessMode.READ, ResourceKind.DEVICE, request_id=request_id
+        )
         return self._repository.list_devices(actor.owner_id)
+
+    def get_device(
+        self, actor: ActorContext, device_id: UUID, *, request_id: str | None = None
+    ) -> Device:
+        self._policy.authorize(
+            actor, AccessMode.READ, ResourceKind.DEVICE, request_id=request_id
+        )
+        device = self._repository.get_device(actor.owner_id, device_id)
+        if device is None:
+            raise NotFoundError()
+        return device
 
     def register_device(
         self,
@@ -124,8 +156,11 @@ class IdentityService:
         platform: str,
         device_id: UUID | None = None,
         at: datetime | None = None,
+        request_id: str | None = None,
     ) -> Device:
-        self._require_owner(actor)
+        self._policy.authorize(
+            actor, AccessMode.WRITE, ResourceKind.DEVICE, request_id=request_id
+        )
         clean_name = (name or "").strip()
         if not clean_name:
             raise ValidationError("Device name is required.", field="name")
@@ -142,19 +177,38 @@ class IdentityService:
         )
         return self._repository.add_device(device)
 
-    def revoke_device(self, actor: ActorContext, device_id: UUID) -> Device:
-        self._require_owner(actor)
+    def revoke_device(
+        self, actor: ActorContext, device_id: UUID, *, request_id: str | None = None
+    ) -> Device:
+        self._policy.authorize(
+            actor, AccessMode.WRITE, ResourceKind.DEVICE, request_id=request_id
+        )
         device = self._repository.set_device_status(
             actor.owner_id, device_id, DeviceStatus.REVOKED
         )
         if device is None:
-            raise AuthorizationError("The requested device is not available in this scope.")
+            raise NotFoundError()
         return device
 
     # -- relationships -----------------------------------------------------
-    def list_relationships(self, actor: ActorContext) -> list[Relationship]:
-        self._require_owner(actor)
+    def list_relationships(
+        self, actor: ActorContext, *, request_id: str | None = None
+    ) -> list[Relationship]:
+        self._policy.authorize(
+            actor, AccessMode.READ, ResourceKind.RELATIONSHIP, request_id=request_id
+        )
         return self._repository.list_relationships(actor.owner_id)
+
+    def get_relationship(
+        self, actor: ActorContext, relationship_id: UUID, *, request_id: str | None = None
+    ) -> Relationship:
+        self._policy.authorize(
+            actor, AccessMode.READ, ResourceKind.RELATIONSHIP, request_id=request_id
+        )
+        relationship = self._repository.get_relationship(actor.owner_id, relationship_id)
+        if relationship is None:
+            raise NotFoundError()
+        return relationship
 
     def grant_relationship(
         self,
@@ -165,8 +219,11 @@ class IdentityService:
         permission_scope: set[str] | frozenset[str],
         expires_at: datetime | None = None,
         relationship_id: UUID | None = None,
+        request_id: str | None = None,
     ) -> Relationship:
-        self._require_owner(actor)
+        self._policy.authorize(
+            actor, AccessMode.WRITE, ResourceKind.RELATIONSHIP, request_id=request_id
+        )
         if observer_user_id == actor.owner_id:
             raise ValidationError(
                 "An observer relationship cannot target the learner owner.",
@@ -198,24 +255,22 @@ class IdentityService:
         return self._repository.add_relationship(relationship)
 
     def revoke_relationship(
-        self, actor: ActorContext, relationship_id: UUID, *, at: datetime | None = None
+        self,
+        actor: ActorContext,
+        relationship_id: UUID,
+        *,
+        at: datetime | None = None,
+        request_id: str | None = None,
     ) -> Relationship:
-        self._require_owner(actor)
+        self._policy.authorize(
+            actor, AccessMode.WRITE, ResourceKind.RELATIONSHIP, request_id=request_id
+        )
         relationship = self._repository.revoke_relationship(
             actor.owner_id, relationship_id, _now(at)
         )
         if relationship is None:
-            raise AuthorizationError(
-                "The requested relationship is not available in this scope."
-            )
+            raise NotFoundError()
         return relationship
-
-    # -- helpers -----------------------------------------------------------
-    @staticmethod
-    def _require_owner(actor: ActorContext) -> None:
-        """Observers can never mutate learner data (Requirement 2.6)."""
-        if not actor.is_owner:
-            raise AuthorizationError("This action requires learner ownership.")
 
 
 def _validate_timezone(value: str) -> str:
