@@ -128,11 +128,16 @@ impl DesktopController {
     /// Creates a controller over the supplied adapter registry.
     #[must_use]
     pub fn new(adapters: OsAdapters) -> Self {
-        Self { adapters, state: Mutex::new(DesktopState::default()) }
+        Self {
+            adapters,
+            state: Mutex::new(DesktopState::default()),
+        }
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, DesktopState>, OsError> {
-        self.state.lock().map_err(|_| OsError::Backend("controller state lock poisoned".into()))
+        self.state
+            .lock()
+            .map_err(|_| OsError::Backend("controller state lock poisoned".into()))
     }
 
     /// Records a non-fatal issue that the client should surface without failing.
@@ -240,7 +245,9 @@ impl DesktopController {
         let device = {
             let state = self.lock()?;
             if state.wake_config.keyboard_only {
-                return Err(OsError::InvalidInput("wake listening is disabled in keyboard-only mode".into()));
+                return Err(OsError::InvalidInput(
+                    "wake listening is disabled in keyboard-only mode".into(),
+                ));
             }
             state.wake_config.microphone_device.clone()
         };
@@ -422,9 +429,8 @@ impl DesktopController {
 mod tests {
     use super::{DesktopController, WakeConfig};
     use crate::os::adapters::{
-        InMemorySecureStore, StaticDisplay, StatefulAudioControl, StatefulLoginItem,
-        StatefulNotification, StatefulPermission, StatefulShortcut, StatefulTray,
-        SystemAudioDevices,
+        InMemorySecureStore, StatefulAudioControl, StatefulLoginItem, StatefulNotification,
+        StatefulPermission, StatefulShortcut, StatefulTray, StaticDisplay, SystemAudioDevices,
     };
     use crate::os::{OsAdapters, PermissionState, Platform};
 
@@ -502,17 +508,25 @@ mod tests {
     #[test]
     fn invalid_wake_config_is_rejected() {
         let controller = controller_with(PermissionState::Granted, true);
-        let config = WakeConfig { min_gap_ms: 10, ..WakeConfig::default() };
+        let config = WakeConfig {
+            min_gap_ms: 10,
+            ..WakeConfig::default()
+        };
         assert!(controller.set_wake_config(config).is_err());
     }
 
     #[test]
     fn keyboard_only_mode_disables_listening() {
         let controller = controller_with(PermissionState::Granted, true);
-        let config = WakeConfig { keyboard_only: true, ..WakeConfig::default() };
+        let config = WakeConfig {
+            keyboard_only: true,
+            ..WakeConfig::default()
+        };
         controller.set_wake_config(config).expect("config");
         assert!(controller.begin_wake_listening().is_err());
-        controller.register_wake_shortcut().expect("keyboard-only unregisters");
+        controller
+            .register_wake_shortcut()
+            .expect("keyboard-only unregisters");
     }
 
     #[test]
@@ -527,7 +541,9 @@ mod tests {
     #[test]
     fn secure_session_round_trips_through_store() {
         let controller = controller_with(PermissionState::Granted, true);
-        controller.secure_session_set("session", b"token").expect("set");
+        controller
+            .secure_session_set("session", b"token")
+            .expect("set");
         controller.secure_session_clear("session").expect("clear");
     }
 

@@ -63,7 +63,7 @@ def create_app(
 ) -> FastAPI:
     runtime_settings = settings or load_settings()
     application = FastAPI(
-        title="FastLearner API",
+        title="Zipity API",
         version="0.1.0",
         lifespan=_lifespan(runtime_settings),
     )

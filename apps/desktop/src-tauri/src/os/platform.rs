@@ -6,12 +6,12 @@
 //! or the Python contracts.
 
 use super::adapters::{
-    KeyringSecureStore, StaticDisplay, StatefulAudioControl, StatefulLoginItem,
-    StatefulNotification, StatefulPermission, StatefulShortcut, StatefulTray, SystemAudioDevices,
+    KeyringSecureStore, StatefulAudioControl, StatefulLoginItem, StatefulNotification,
+    StatefulPermission, StatefulShortcut, StatefulTray, StaticDisplay, SystemAudioDevices,
 };
 use super::{OsAdapters, PermissionState, Platform};
 
-/// The keyring service namespace for `FastLearner` secrets.
+/// Stable legacy keyring namespace for Zipity secrets.
 pub const KEYRING_SERVICE: &str = "app.fastlearner.desktop";
 
 /// Builds the adapter registry for the platform this binary targets.

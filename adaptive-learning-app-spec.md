@@ -1,8 +1,8 @@
-# FastLearner — Complete Build Specification
+# Zipity — Complete Build Specification
 
 ## 1. Product Definition
 
-FastLearner is an internet-connected, always-available personal study companion for students. It combines adaptive tutoring, assignment management, subject dashboards, persistent personal context, question generation, study planning, and evidence-based strength/pathway guidance in one desktop product.
+Zipity is an internet-connected, always-available personal study companion for students. It combines adaptive tutoring, assignment management, subject dashboards, persistent personal context, question generation, study planning, and evidence-based strength/pathway guidance in one desktop product.
 
 Initial audience: students in grades 3–12. Initial adaptive curriculum: grades 3–5 fractions → decimals → percentages. Architecture must support any school subject and future curriculum packs.
 
@@ -12,7 +12,7 @@ The product is not a generic chatbot. It is a personal study system with durable
 
 Student can:
 
-- Double-clap to wake FastLearner while it runs in desktop tray/background.
+- Double-clap to wake Zipity while it runs in desktop tray/background.
 - Ask a question by voice or typing, get an answer grounded in saved notes, assignments, curriculum content, and approved sources.
 - Save a note, lecture summary, assignment brief, goal, correction, resource, or preference into subject-scoped long-term memory.
 - View all subjects, upcoming work, weak/strong concepts, review due dates, study streak, and next best action in one dashboard.
@@ -63,7 +63,7 @@ Parent/teacher can later receive a read-only learner dashboard. MVP focuses on o
 
 1. App runs in tray; background wake service is enabled only after permission.
 2. Student claps twice within configured time window, or uses keyboard shortcut.
-3. App shows compact overlay: “FastLearner is listening.”
+3. App shows compact overlay: “Zipity is listening.”
 4. Student speaks/types: “What do I need to finish for science?”
 5. Backend loads assignments, current plan, and relevant memory from only that student/subject scope.
 6. LLM returns concise answer with cited assignment/note context and proposed actions.

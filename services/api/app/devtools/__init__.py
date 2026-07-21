@@ -1,1 +1,1 @@
-"""Cross-platform development tooling for FastLearner."""
+"""Cross-platform development tooling for Zipity."""

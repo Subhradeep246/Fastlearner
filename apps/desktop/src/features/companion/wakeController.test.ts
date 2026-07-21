@@ -64,6 +64,7 @@ class FakeBridge implements NativeBridge {
   reportedPermissions: PermissionState[] = [];
   quitCalls = 0;
   wakeDetectedHandlers: Array<(event: WakeDetected) => void> = [];
+  wakeStateHandlers: Array<(state: LifecycleStatus) => void> = [];
   permissionHandlers: Array<(state: PermissionState) => void> = [];
   syncHandlers: Array<(state: SyncState) => void> = [];
 
@@ -89,16 +90,27 @@ class FakeBridge implements NativeBridge {
   });
   onWakeDetected = vi.fn((handler: (event: WakeDetected) => void) => {
     this.wakeDetectedHandlers.push(handler);
-    return Promise.resolve(() => {});
+    return Promise.resolve(() => {
+      this.wakeDetectedHandlers = this.wakeDetectedHandlers.filter((item) => item !== handler);
+    });
   });
-  onWakeState = vi.fn(() => Promise.resolve(() => {}));
+  onWakeState = vi.fn((handler: (state: LifecycleStatus) => void) => {
+    this.wakeStateHandlers.push(handler);
+    return Promise.resolve(() => {
+      this.wakeStateHandlers = this.wakeStateHandlers.filter((item) => item !== handler);
+    });
+  });
   onPermissionChanged = vi.fn((handler: (state: PermissionState) => void) => {
     this.permissionHandlers.push(handler);
-    return Promise.resolve(() => {});
+    return Promise.resolve(() => {
+      this.permissionHandlers = this.permissionHandlers.filter((item) => item !== handler);
+    });
   });
   onSyncState = vi.fn((handler: (state: SyncState) => void) => {
     this.syncHandlers.push(handler);
-    return Promise.resolve(() => {});
+    return Promise.resolve(() => {
+      this.syncHandlers = this.syncHandlers.filter((item) => item !== handler);
+    });
   });
 }
 
@@ -204,6 +216,73 @@ describe("CompanionWakeController", () => {
     await Promise.resolve();
     expect(controller.getState().overlay).toBe("confirmation");
     expect(controller.getState().wakeSource).toBe("native");
+  });
+
+  it("makes repeated initialization idempotent without duplicate native handlers", async () => {
+    await Promise.all([controller.initialize(), controller.initialize()]);
+    await controller.initialize();
+
+    expect(bridge.getCapabilities).toHaveBeenCalledTimes(1);
+    expect(bridge.getWakeConfig).toHaveBeenCalledTimes(1);
+    expect(bridge.onWakeDetected).toHaveBeenCalledTimes(1);
+    expect(bridge.onWakeState).toHaveBeenCalledTimes(1);
+    expect(bridge.onPermissionChanged).toHaveBeenCalledTimes(1);
+    expect(bridge.onSyncState).toHaveBeenCalledTimes(1);
+    expect(bridge.wakeDetectedHandlers).toHaveLength(1);
+    expect(bridge.wakeStateHandlers).toHaveLength(1);
+    expect(bridge.permissionHandlers).toHaveLength(1);
+    expect(bridge.syncHandlers).toHaveLength(1);
+  });
+
+  it("cancels stale initialization and reinitializes without handler leaks", async () => {
+    let releaseFirstWakeListener!: () => void;
+    let staleWakeHandler!: (event: WakeDetected) => void;
+    let staleUnsubscribe!: ReturnType<typeof vi.fn>;
+    const firstWakeRegistration = new Promise<() => void>((resolve) => {
+      releaseFirstWakeListener = () => {
+        staleUnsubscribe = vi.fn(() => {
+          bridge.wakeDetectedHandlers = bridge.wakeDetectedHandlers.filter(
+            (item) => item !== staleWakeHandler,
+          );
+        });
+        resolve(staleUnsubscribe);
+      };
+    });
+    bridge.onWakeDetected.mockImplementationOnce((handler) => {
+      staleWakeHandler = handler;
+      bridge.wakeDetectedHandlers.push(handler);
+      return firstWakeRegistration;
+    });
+
+    const firstInitialization = controller.initialize();
+    await vi.waitFor(() => expect(bridge.onWakeDetected).toHaveBeenCalledTimes(1));
+    controller.dispose();
+    const secondInitialization = controller.initialize();
+    await vi.waitFor(() => expect(bridge.onWakeDetected).toHaveBeenCalledTimes(2));
+
+    releaseFirstWakeListener();
+    await Promise.all([firstInitialization, secondInitialization]);
+
+    expect(staleUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(bridge.wakeDetectedHandlers).toHaveLength(1);
+    expect(bridge.wakeStateHandlers).toHaveLength(1);
+    expect(bridge.permissionHandlers).toHaveLength(1);
+    expect(bridge.syncHandlers).toHaveLength(1);
+
+    staleWakeHandler({ atMs: 1 });
+    await Promise.resolve();
+    expect(bridge.openOverlay).not.toHaveBeenCalled();
+
+    bridge.wakeDetectedHandlers[0]!({ atMs: 2 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(bridge.openOverlay).toHaveBeenCalledTimes(1);
+
+    controller.dispose();
+    expect(bridge.wakeDetectedHandlers).toHaveLength(0);
+    expect(bridge.wakeStateHandlers).toHaveLength(0);
+    expect(bridge.permissionHandlers).toHaveLength(0);
+    expect(bridge.syncHandlers).toHaveLength(0);
   });
 
   it("performs explicit quit through the bridge", async () => {

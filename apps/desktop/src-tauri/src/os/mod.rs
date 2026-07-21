@@ -1,4 +1,4 @@
-//! Portable operating-system adapter registry for the `FastLearner` desktop shell.
+//! Portable operating-system adapter registry for the Zipity desktop shell.
 //!
 //! Every native concern (tray, global shortcut, microphone permission, secure
 //! storage, notifications, login item, display bounds, and audio devices) is
@@ -355,7 +355,12 @@ mod tests {
 
     #[test]
     fn centered_child_is_inside_parent_bounds() {
-        let parent = Rect { x: 0.0, y: 0.0, width: 1000.0, height: 800.0 };
+        let parent = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
         let child = parent.centered_child(460.0, 260.0);
         assert!((child.x - 270.0).abs() < f64::EPSILON);
         assert!((child.y - 270.0).abs() < f64::EPSILON);

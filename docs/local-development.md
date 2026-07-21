@@ -22,7 +22,7 @@ Reset is intentionally separate and requires an exact confirmation phrase:
 npm run dev:reset -- --confirm delete-local-data
 ```
 
-This removes the FastLearner Compose containers and named PostgreSQL, Neo4j, and Valkey volumes. Omitting or changing the phrase exits without modifying data.
+This removes the Zipity Compose containers and named PostgreSQL, Neo4j, and Valkey volumes. Omitting or changing the phrase exits without modifying data.
 
 ## Safe remediation
 

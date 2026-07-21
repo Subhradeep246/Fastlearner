@@ -25,6 +25,7 @@ from app.persistence.models import (
 )
 from app.persistence.seeds import (
     CurriculumManifest,
+    LOCAL_LEARNER_ID,
     SeedConflict,
     apply_curriculum_manifest,
     manifest_checksum,
@@ -89,6 +90,33 @@ def test_local_persona_seed_is_idempotent() -> None:
         assert connection.scalar(select(func.count()).select_from(users)) == 3
         assert connection.scalar(select(func.count()).select_from(profiles)) == 1
         assert connection.scalar(select(func.count()).select_from(user_relationships)) == 2
+
+
+def test_local_persona_seed_never_overwrites_personalization() -> None:
+    engine = _engine()
+    metadata.create_all(engine, tables=[users, profiles, user_relationships])
+    with engine.begin() as connection:
+        seed_local_personas(connection)
+        connection.execute(
+            users.update().where(users.c.id == LOCAL_LEARNER_ID).values(display_name="Alex")
+        )
+        preferences = {"name": "Alex", "onboarding_completed": True}
+        connection.execute(
+            profiles.update().where(profiles.c.user_id == LOCAL_LEARNER_ID).values(
+                grade_level=10, timezone="America/New_York", study_preferences=preferences
+            )
+        )
+        seed_local_personas(connection)
+        user = connection.execute(
+            select(users).where(users.c.id == LOCAL_LEARNER_ID)
+        ).mappings().one()
+        profile = connection.execute(
+            select(profiles).where(profiles.c.user_id == LOCAL_LEARNER_ID)
+        ).mappings().one()
+        assert user["display_name"] == "Alex"
+        assert profile["grade_level"] == 10
+        assert profile["timezone"] == "America/New_York"
+        assert profile["study_preferences"] == preferences
 
 
 def _curriculum_manifest(version: str = "1", title: str = "Test Mathematics") -> CurriculumManifest:

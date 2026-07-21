@@ -4,6 +4,6 @@ import { App } from "./App";
 
 describe("dashboard App", () => {
   it("renders the shared application shell", () => {
-    expect(renderToStaticMarkup(<App />)).toContain("FastLearner dashboard");
+    expect(renderToStaticMarkup(<App />)).toContain("Zipity Dashboard");
   });
 });

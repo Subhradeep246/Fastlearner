@@ -1,0 +1,47 @@
+.jarvis-wake-button.clap-seen {
+  animation: clap-seen 0.42s ease-out;
+  background: #ddec9b;
+  color: #1d2a24;
+  box-shadow: 0 0 0 12px rgba(221, 236, 155, 0.2), 0 8px 30px rgba(20, 38, 28, 0.32);
+}
+
+.jarvis-wake-button.has-warning::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  right: 1px;
+  top: 1px;
+  border: 2px solid #1d2a24;
+  border-radius: 50%;
+  background: #e49a62;
+}
+
+.wake-warning {
+  position: fixed;
+  z-index: 24;
+  right: 86px;
+  bottom: 24px;
+  max-width: 320px;
+  border: 1px solid #e5c8a6;
+  border-radius: 12px;
+  padding: 11px 14px;
+  background: #fff8ed;
+  color: #594b3b;
+  box-shadow: 0 12px 35px rgba(25, 35, 29, .16);
+  text-align: left;
+}
+
+.wake-warning strong,.wake-warning span { display: block; }
+.wake-warning strong { font-size: 12px; }
+.wake-warning span { margin-top: 3px; font-size: 10px; opacity: .8; }
+
+@keyframes clap-seen {
+  0% { transform: scale(0.82); }
+  55% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-wake-button.clap-seen { animation: none; }
+}

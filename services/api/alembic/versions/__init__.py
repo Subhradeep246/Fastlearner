@@ -1,1 +1,1 @@
-"""Linear FastLearner schema revisions."""
+"""Linear Zipity schema revisions."""

@@ -10,6 +10,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
+use wake_detector::capture::{default_input_device_name, input_device_names};
+
 use super::{
     AudioDeviceAdapter, DisplayAdapter, LoginItemAdapter, Notification, NotificationAdapter,
     OsError, PermissionAdapter, PermissionState, Rect, SecureStore, ShortcutAdapter, TrayAction,
@@ -26,7 +28,10 @@ pub struct StatefulTray {
 impl StatefulTray {
     #[must_use]
     pub const fn new(supported: bool) -> Self {
-        Self { installed: AtomicBool::new(false), supported }
+        Self {
+            installed: AtomicBool::new(false),
+            supported,
+        }
     }
 }
 
@@ -36,7 +41,9 @@ impl TrayAdapter for StatefulTray {
             return Err(OsError::Unsupported("system tray is not available".into()));
         }
         if actions.is_empty() {
-            return Err(OsError::InvalidInput("tray requires at least one action".into()));
+            return Err(OsError::InvalidInput(
+                "tray requires at least one action".into(),
+            ));
         }
         self.installed.store(true, Ordering::SeqCst);
         Ok(())
@@ -88,13 +95,17 @@ pub struct StatefulPermission {
 impl StatefulPermission {
     #[must_use]
     pub fn new(initial: PermissionState) -> Self {
-        Self { state: Mutex::new(initial) }
+        Self {
+            state: Mutex::new(initial),
+        }
     }
 }
 
 impl PermissionAdapter for StatefulPermission {
     fn microphone_state(&self) -> PermissionState {
-        self.state.lock().map_or(PermissionState::Unavailable, |guard| *guard)
+        self.state
+            .lock()
+            .map_or(PermissionState::Unavailable, |guard| *guard)
     }
 
     fn request_microphone(&self) -> Result<PermissionState, OsError> {
@@ -132,10 +143,14 @@ impl StatefulNotification {
 impl NotificationAdapter for StatefulNotification {
     fn notify(&self, message: Notification) -> Result<(), OsError> {
         if !self.supported {
-            return Err(OsError::Unsupported("notifications are not available".into()));
+            return Err(OsError::Unsupported(
+                "notifications are not available".into(),
+            ));
         }
         if message.title.trim().is_empty() {
-            return Err(OsError::InvalidInput("notification title must not be empty".into()));
+            return Err(OsError::InvalidInput(
+                "notification title must not be empty".into(),
+            ));
         }
         Ok(())
     }
@@ -151,7 +166,10 @@ pub struct StatefulLoginItem {
 impl StatefulLoginItem {
     #[must_use]
     pub const fn new(mechanism: &'static str) -> Self {
-        Self { enabled: AtomicBool::new(false), mechanism }
+        Self {
+            enabled: AtomicBool::new(false),
+            mechanism,
+        }
     }
 }
 
@@ -178,7 +196,14 @@ pub struct StaticDisplay {
 
 impl Default for StaticDisplay {
     fn default() -> Self {
-        Self { bounds: Rect { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0 } }
+        Self {
+            bounds: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1920.0,
+                height: 1080.0,
+            },
+        }
     }
 }
 
@@ -188,18 +213,17 @@ impl DisplayAdapter for StaticDisplay {
     }
 }
 
-/// Audio-device adapter. Device enumeration is wired to `cpal` during capture
-/// integration; the registry seam reports an empty inventory by default.
+/// Audio-device adapter backed by the same `cpal` host used for wake capture.
 #[derive(Debug, Default)]
 pub struct SystemAudioDevices;
 
 impl AudioDeviceAdapter for SystemAudioDevices {
     fn input_devices(&self) -> Result<Vec<String>, OsError> {
-        Ok(Vec::new())
+        input_device_names().map_err(|error| OsError::Unavailable(error.to_string()))
     }
 
     fn default_input_device(&self) -> Result<Option<String>, OsError> {
-        Ok(None)
+        default_input_device_name().map_err(|error| OsError::Unavailable(error.to_string()))
     }
 }
 
@@ -239,15 +263,18 @@ pub struct KeyringSecureStore {
 impl KeyringSecureStore {
     #[must_use]
     pub fn new(service: impl Into<String>) -> Self {
-        Self { service: service.into() }
+        Self {
+            service: service.into(),
+        }
     }
 
     fn entry(&self, key: &str) -> Result<keyring::Entry, OsError> {
         if key.trim().is_empty() {
-            return Err(OsError::InvalidInput("secure-store key must not be empty".into()));
+            return Err(OsError::InvalidInput(
+                "secure-store key must not be empty".into(),
+            ));
         }
-        keyring::Entry::new(&self.service, key)
-            .map_err(|error| OsError::Backend(error.to_string()))
+        keyring::Entry::new(&self.service, key).map_err(|error| OsError::Backend(error.to_string()))
     }
 }
 
@@ -283,7 +310,9 @@ pub struct InMemorySecureStore {
 impl SecureStore for InMemorySecureStore {
     fn put(&self, key: &str, secret: &[u8]) -> Result<(), OsError> {
         if key.trim().is_empty() {
-            return Err(OsError::InvalidInput("secure-store key must not be empty".into()));
+            return Err(OsError::InvalidInput(
+                "secure-store key must not be empty".into(),
+            ));
         }
         self.entries
             .lock()
@@ -336,14 +365,19 @@ mod tests {
     fn shortcut_rejects_empty_chord_and_round_trips() {
         let shortcut = StatefulShortcut::default();
         assert!(shortcut.register_wake("  ").is_err());
-        shortcut.register_wake("CmdOrCtrl+Shift+Space").expect("register");
+        shortcut
+            .register_wake("CmdOrCtrl+Shift+Space")
+            .expect("register");
         shortcut.unregister_wake().expect("unregister");
     }
 
     #[test]
     fn permission_request_resolves_prompt_to_denied() {
         let permission = StatefulPermission::new(PermissionState::Prompt);
-        assert_eq!(permission.request_microphone().expect("request"), PermissionState::Denied);
+        assert_eq!(
+            permission.request_microphone().expect("request"),
+            PermissionState::Denied
+        );
         permission.set_microphone_state(PermissionState::Granted);
         assert_eq!(permission.microphone_state(), PermissionState::Granted);
     }
@@ -352,14 +386,23 @@ mod tests {
     fn notification_requires_support_and_title() {
         let disabled = StatefulNotification::new(false);
         assert!(disabled
-            .notify(Notification { title: "hi".into(), body: "x".into() })
+            .notify(Notification {
+                title: "hi".into(),
+                body: "x".into()
+            })
             .is_err());
         let enabled = StatefulNotification::new(true);
         assert!(enabled
-            .notify(Notification { title: " ".into(), body: "x".into() })
+            .notify(Notification {
+                title: " ".into(),
+                body: "x".into()
+            })
             .is_err());
         enabled
-            .notify(Notification { title: "Listening".into(), body: "Wake ready".into() })
+            .notify(Notification {
+                title: "Listening".into(),
+                body: "Wake ready".into(),
+            })
             .expect("notify");
     }
 

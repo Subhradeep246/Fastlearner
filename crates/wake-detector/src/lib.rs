@@ -3,17 +3,15 @@
 //! The pure detector accepts bounded mono frames. Audio capture is isolated in
 //! [`capture`]; neither module has a network, AI, or durable raw-audio boundary.
 
+pub mod capture;
 mod detector;
 mod diagnostics;
-pub mod capture;
 
 pub use detector::{
     AudioError, AudioFrame, DetectorConfig, DetectorConfigError, DetectorState, FrameSource,
-    WakeDetector, WakeEvent, WakeSink,
+    TransientEvent, WakeDetector, WakeEvent, WakeSink,
 };
-pub use diagnostics::{
-    AggregateDiagnosticSnapshot, AggregateDiagnostics, DiagnosticConfigBucket,
-};
+pub use diagnostics::{AggregateDiagnosticSnapshot, AggregateDiagnostics, DiagnosticConfigBucket};
 
 /// Identifies the privacy-sensitive native component in aggregate diagnostics.
 #[must_use]

@@ -499,9 +499,48 @@ class HttpxOpenAITransport(OpenAITransport):
         return await self._post_json("/chat/completions", payload)
 
     def chat_stream(self, payload: Mapping[str, Any]) -> AsyncIterator[Mapping[str, Any]]:  # pragma: no cover
-        # Streaming over server-sent events is wired in the assistant streaming
-        # task; the non-streaming path is sufficient for the provider contract.
-        raise OpenAITransportError("unavailable", "Streaming transport is not configured.")
+        return self._chat_stream(payload)
+
+    async def _chat_stream(
+        self, payload: Mapping[str, Any]
+    ) -> AsyncIterator[Mapping[str, Any]]:  # pragma: no cover - live endpoint only
+        import httpx
+
+        try:
+            async with self._client() as client:
+                async with client.stream("POST", "/chat/completions", json=dict(payload)) as response:
+                    if response.status_code == 429:
+                        retry_after = response.headers.get("retry-after")
+                        raise OpenAITransportError(
+                            "rate_limited",
+                            "The AI request was rate limited.",
+                            retry_after_seconds=float(retry_after) if retry_after else None,
+                        )
+                    if response.status_code >= 400:
+                        raise OpenAITransportError(
+                            "unavailable",
+                            f"The AI streaming request failed with status {response.status_code}.",
+                        )
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if not data or data == "[DONE]":
+                            continue
+                        try:
+                            decoded = json.loads(data)
+                        except json.JSONDecodeError as error:
+                            raise OpenAITransportError(
+                                "unavailable", "The AI stream returned malformed data."
+                            ) from error
+                        if isinstance(decoded, Mapping):
+                            yield decoded
+        except OpenAITransportError:
+            raise
+        except httpx.TimeoutException as error:
+            raise OpenAITransportError("timeout", "The AI stream timed out.") from error
+        except httpx.HTTPError as error:
+            raise OpenAITransportError("unavailable", "The AI stream is unavailable.") from error
 
     async def embeddings(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:  # pragma: no cover
         return await self._post_json("/embeddings", payload)

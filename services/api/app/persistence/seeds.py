@@ -73,6 +73,16 @@ def _upsert(connection: Connection, table: Any, key: dict[str, Any], values: dic
         connection.execute(table.update().where(predicate).values(**values))
 
 
+def _insert_seed_if_absent(
+    connection: Connection, table: Any, key: dict[str, Any], values: dict[str, Any]
+) -> None:
+    """Create mutable seed data once without clobbering user edits."""
+    predicate = and_(*(table.c[name] == value for name, value in key.items()))
+    exists = connection.execute(select(table.c[next(iter(key))]).where(predicate)).first()
+    if exists is None:
+        connection.execute(table.insert().values(**key, **values))
+
+
 def seed_local_personas(connection: Connection) -> None:
     """Create stable loopback-only development personas; safe to run repeatedly."""
     personas = (
@@ -81,13 +91,13 @@ def seed_local_personas(connection: Connection) -> None:
         (LOCAL_TEACHER_ID, "teacher@local.fastlearner", "Local Teacher"),
     )
     for user_id, email, display_name in personas:
-        _upsert(
+        _insert_seed_if_absent(
             connection,
             users,
             {"id": user_id},
             {"email": email, "display_name": display_name, "status": "active"},
         )
-    _upsert(
+    _insert_seed_if_absent(
         connection,
         profiles,
         {"user_id": LOCAL_LEARNER_ID},

@@ -1,1 +1,1 @@
-"""FastLearner API package."""
+"""Zipity API package."""

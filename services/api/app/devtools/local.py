@@ -378,7 +378,7 @@ def run_worker() -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="FastLearner cross-platform local development supervisor")
+    parser = argparse.ArgumentParser(description="Zipity cross-platform local development supervisor")
     subcommands = parser.add_subparsers(dest="command", required=True)
     start = subcommands.add_parser("start", help="start dependencies, migrate, seed, API, worker, and optionally desktop")
     start.add_argument("--services-only", action="store_true", help="run the headless API/worker profile without Tauri")

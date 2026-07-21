@@ -1,4 +1,4 @@
-# FastLearner Adaptive Learning App — Implementation Progress
+# Zipity Adaptive Learning App — Implementation Progress
 
 > **Last updated:** 2026-07-20  
 > **Spec location:** `.kiro/specs/adaptive-learning-app/`  

@@ -1,5 +1,7 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { LearnerProfile, LearnerSetup, Onboarding } from "./Onboarding";
 import "./styles.css";
+import "./onboarding.css";
 
 const API = "http://127.0.0.1:8001/v1";
 type View = "Today" | "Work" | "Learn" | "Memory" | "Assistant";
@@ -9,17 +11,19 @@ type Assignment = {
   due_at: string; estimated_minutes: number;
 };
 type Goal = { id: string; title: string; status: string; target_at?: string };
+type Me = { actor_id: string; owner_id: string; is_owner: boolean; profile: LearnerProfile | null };
+let localSessionToken: string | null = null;
 
 async function sessionToken(): Promise<string> {
-  const cached = localStorage.getItem("fastlearner.token");
-  if (cached) return cached;
+  if (localSessionToken) return localSessionToken;
+  localStorage.removeItem("fastlearner.token");
   const response = await fetch(`${API}/local/session`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ persona: "learner" }),
   });
   if (!response.ok) throw new Error("Local API unavailable");
   const data = await response.json() as { token: string };
-  localStorage.setItem("fastlearner.token", data.token);
+  localSessionToken = data.token;
   return data.token;
 }
 
@@ -34,14 +38,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (response.status === 401) {
-    localStorage.removeItem("fastlearner.token");
+    localSessionToken = null;
     if (!init?.headers || !(init.headers as Record<string, string>)["X-Retry"]) {
       return api<T>(path, { ...init, headers: { ...(init?.headers ?? {}), "X-Retry": "1" } });
     }
   }
   if (!response.ok) {
-    const body = await response.json().catch(() => ({})) as { error?: { message?: string } };
-    throw new Error(body.error?.message ?? `Request failed (${response.status})`);
+    const body = await response.json().catch(() => ({})) as { error?: { message?: string }; detail?: string };
+    throw new Error(body.error?.message ?? body.detail ?? `Request failed (${response.status})`);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -54,25 +58,78 @@ export function AppShell({ title }: AppShellProps) {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [me, setMe] = useState<Me | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [compose, setCompose] = useState<"assignment" | "subject" | "goal" | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       setError("");
-      const [nextSubjects, nextAssignments, nextGoals] = await Promise.all([
-        api<Subject[]>("/subjects"), api<Assignment[]>("/assignments"), api<Goal[]>("/goals"),
+      const [nextSubjects, nextAssignments, nextGoals, nextMe] = await Promise.all([
+        api<Subject[]>("/subjects"), api<Assignment[]>("/assignments"), api<Goal[]>("/goals"), api<Me>("/me"),
       ]);
-      setSubjects(nextSubjects); setAssignments(nextAssignments); setGoals(nextGoals);
+      setSubjects(nextSubjects); setAssignments(nextAssignments); setGoals(nextGoals); setMe(nextMe);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not connect");
     } finally { setBusy(false); }
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    const openAssistant = () => setView("Assistant");
+    window.addEventListener("fastlearner:open-assistant", openAssistant);
+    return () => window.removeEventListener("fastlearner:open-assistant", openAssistant);
+  }, []);
   const active = assignments.filter(item => item.status !== "done" && item.status !== "archived");
   const focusMinutes = active.reduce((sum, item) => sum + item.estimated_minutes, 0);
+  const preferences = me?.profile?.study_preferences ?? {};
+  const learnerName = typeof preferences.name === "string" ? preferences.name : "Learner";
+  const learnerInitial = learnerName.trim().charAt(0).toUpperCase() || "L";
+  const needsOnboarding = !!me?.profile && preferences.onboarding_completed !== true;
+
+  async function saveProfile(setup: LearnerSetup) {
+    if (!me?.profile) throw new Error("Profile is unavailable");
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || me.profile.timezone || "UTC";
+    const studyPreferences = {
+      ...me.profile.study_preferences,
+      schema_version: 1,
+      onboarding_completed: true,
+      demo_profile: setup.name.includes("(Demo)"),
+      name: setup.name,
+      school: setup.school,
+      subjects: setup.subjects,
+      goals: setup.goals,
+      interests: setup.interests,
+      learning_style: setup.learningStyle,
+      answer_style: setup.answerStyle,
+      session_minutes: setup.sessionMinutes,
+      daily_limit_minutes: setup.dailyLimitMinutes,
+      voice_enabled: setup.voiceEnabled,
+      double_clap: setup.doubleClap,
+      remember_chats: setup.rememberChats,
+      assistant_name: "Zipity",
+    };
+    await api("/me/profile", { method: "PATCH", body: JSON.stringify({ grade_level: setup.gradeLevel, timezone, study_preferences: studyPreferences }) });
+    const knownTitles = new Set(subjects.map(item => item.title.toLocaleLowerCase()));
+    for (const subjectTitle of setup.subjects) {
+      const slug = subjectTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      if (slug && !knownTitles.has(subjectTitle.toLocaleLowerCase())) {
+        await api("/subjects", { method: "POST", body: JSON.stringify({ title: subjectTitle, slug }) });
+        knownTitles.add(subjectTitle.toLocaleLowerCase());
+      }
+    }
+    if (setup.goals && !goals.some(goal => goal.title === setup.goals)) {
+      await api("/goals", { method: "POST", body: JSON.stringify({ title: setup.goals, subject_id: null, target_at: null }) });
+    }
+    const devices = await api<{ items: Array<{ name: string; platform: string; status: string }> }>("/me/devices");
+    if (!devices.items.some(device => device.platform === "windows" && device.status === "active")) {
+      await api("/me/devices", { method: "POST", body: JSON.stringify({ name: "This PC", platform: "windows" }) });
+    }
+    setProfileOpen(false);
+    await refresh();
+  }
 
   async function assignmentAction(item: Assignment, action: "start" | "complete") {
     try {
@@ -84,7 +141,7 @@ export function AppShell({ title }: AppShellProps) {
   return (
     <div className="fl-app">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">F</span><span>FastLearner</span></div>
+        <div className="brand"><span className="brand-mark"><img src="/zipity-mark.png" alt="" /></span><span>Zipity</span></div>
         <nav aria-label="Main navigation">
           {(["Today", "Work", "Learn", "Memory", "Assistant"] as View[]).map((item, index) => (
             <button key={item} className={view === item ? "nav-item active" : "nav-item"} onClick={() => setView(item)}>
@@ -92,10 +149,10 @@ export function AppShell({ title }: AppShellProps) {
             </button>
           ))}
         </nav>
-        <div className="side-bottom">
-          <div className="profile-dot">A</div><div><strong>Alex</strong><small>Local workspace</small></div>
+        <button className="side-bottom profile-button" onClick={() => setProfileOpen(true)} title="Edit your Zipity profile">
+          <div className="profile-dot">{learnerInitial}</div><div><strong>{learnerName}</strong><small>{me?.profile ? `Grade ${me.profile.grade_level} · Edit profile` : "Local workspace"}</small></div>
           <span className="online" title="API connected" />
-        </div>
+        </button>
       </aside>
 
       <main className="workspace">
@@ -115,6 +172,7 @@ export function AppShell({ title }: AppShellProps) {
         ) : view === "Learn" ? <Learn /> : view === "Memory" ? <Memory /> : <Assistant />}
       </main>
       {compose && <Composer kind={compose} subjects={subjects} onClose={() => setCompose(null)} onSaved={async () => { setCompose(null); await refresh(); }} />}
+      {me?.profile && (needsOnboarding || profileOpen) && <Onboarding profile={me.profile} editing={!needsOnboarding} onSave={saveProfile} onClose={needsOnboarding ? undefined : () => setProfileOpen(false)} />}
     </div>
   );
 }
@@ -138,7 +196,7 @@ function Today({ active, goals, subjects, focusMinutes, onAction, onAdd }: {
     </section>
     <section className="panel task-panel">
       <div className="panel-head"><div><span className="eyebrow">NEXT UP</span><h3>Priority work</h3></div><button className="text-button" onClick={onAdd}>Add assignment</button></div>
-      {next.length ? <div className="task-list">{next.slice(0, 4).map(item => <TaskRow key={item.id} item={item} onAction={onAction} />)}</div> : <Empty icon="✓" title="Nothing urgent" copy="Add an assignment and FastLearner will organize your next steps." />}
+      {next.length ? <div className="task-list">{next.slice(0, 4).map(item => <TaskRow key={item.id} item={item} onAction={onAction} />)}</div> : <Empty icon="✓" title="Nothing urgent" copy="Add an assignment and Zipity will organize your next steps." />}
     </section>
     <section className="panel goals-panel"><div className="panel-head"><div><span className="eyebrow">DIRECTION</span><h3>Active goals</h3></div></div>
       {goals.filter(g => g.status === "active").slice(0, 3).map(goal => <div className="goal" key={goal.id}><span /><div><strong>{goal.title}</strong><small>{goal.target_at ? `Target ${new Date(goal.target_at).toLocaleDateString()}` : "Keep moving"}</small></div></div>)}
@@ -156,9 +214,18 @@ function TaskRow({ item, onAction }: { item: Assignment; onAction: (a: Assignmen
 
 function Work({ assignments, subjects, onAction, onAddSubject }: { assignments: Assignment[]; subjects: Subject[]; onAction: (a: Assignment, action: "start" | "complete") => void; onAddSubject: () => void }) {
   const names = useMemo(() => Object.fromEntries(subjects.map(s => [s.id, s.title])), [subjects]);
+  const [query, setQuery] = useState(""); const [subject, setSubject] = useState(""); const [status, setStatus] = useState(""); const [page, setPage] = useState(0);
+  const pageSize = 25;
+  const filtered = useMemo(() => assignments.filter(item => {
+    const haystack = `${item.title} ${names[item.subject_id] ?? "General"}`.toLowerCase();
+    return (!query || haystack.includes(query.toLowerCase())) && (!subject || item.subject_id === subject) && (!status || item.status === status);
+  }), [assignments, names, query, subject, status]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visible = filtered.slice(page * pageSize, (page + 1) * pageSize);
+  useEffect(() => { setPage(0); }, [query, subject, status]);
   return <div className="stack"><div className="section-title"><div><span className="eyebrow">SCHOOLWORK</span><h2>Everything you’re working on</h2></div><button className="secondary" onClick={onAddSubject}>New subject</button></div>
-    <div className="subject-pills">{subjects.map(s => <span key={s.id}>{s.title}</span>)}</div>
-    <section className="panel"><div className="table-head"><span>Assignment</span><span>Subject</span><span>Due</span><span>Status</span><span /></div>{assignments.length ? assignments.map(item => <div className="work-row" key={item.id}><strong>{item.title}</strong><span>{names[item.subject_id] ?? "General"}</span><span>{new Date(item.due_at).toLocaleDateString()}</span><span className={`status ${item.status}`}>{item.status.replace("_", " ")}</span><button className="small-button" onClick={() => void onAction(item, item.status === "pending" ? "start" : "complete")}>{item.status === "pending" ? "Start" : "Done"}</button></div>) : <Empty icon="□" title="No assignments yet" copy="Add first assignment from top-right button." />}</section>
+    <div className="subject-pills"><button className={!subject ? "selected" : ""} onClick={() => setSubject("")}>All · {assignments.length}</button>{subjects.map(s => <button className={subject === s.id ? "selected" : ""} onClick={() => setSubject(s.id)} key={s.id}>{s.title}</button>)}</div>
+    <section className="panel"><div className="work-toolbar"><input aria-label="Search assignments" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search assignments or subjects…" /><select aria-label="Filter status" value={status} onChange={event => setStatus(event.target.value)}><option value="">All statuses</option><option value="pending">Pending</option><option value="in_progress">In progress</option><option value="done">Done</option><option value="archived">Archived</option></select><small>{filtered.length} result{filtered.length === 1 ? "" : "s"}</small></div><div className="table-head"><span>Assignment</span><span>Subject</span><span>Due</span><span>Status</span><span /></div>{visible.length ? visible.map(item => <div className="work-row" key={item.id}><strong>{item.title}</strong><span>{names[item.subject_id] ?? "General"}</span><span>{new Date(item.due_at).toLocaleDateString()}</span><span className={`status ${item.status}`}>{item.status.replace("_", " ")}</span><button className="small-button" onClick={() => void onAction(item, item.status === "pending" ? "start" : "complete")}>{item.status === "pending" ? "Start" : "Done"}</button></div>) : <Empty icon="□" title="Nothing matches" copy="Try another subject, status, or search." />}{pageCount > 1 && <div className="pager"><button disabled={page === 0} onClick={() => setPage(value => value - 1)}>Previous</button><span>{page + 1} / {pageCount}</span><button disabled={page + 1 >= pageCount} onClick={() => setPage(value => value + 1)}>Next</button></div>}</section>
   </div>;
 }
 
@@ -185,24 +252,169 @@ function Memory() {
   async function save(event: FormEvent) { event.preventDefault(); if (!note.trim()) return; try { await api("/memory", { method: "POST", body: JSON.stringify({ content: note, kind: "note" }) }); setNote(""); await load(query); } catch (reason) { setMemoryError(reason instanceof Error ? reason.message : "Could not save"); } }
   return <div className="memory-page"><div className="section-title"><div><span className="eyebrow">PERSONAL MEMORY</span><h2>Your knowledge, connected</h2><p>Save only what matters. Notes stay private in your local workspace.</p></div></div><div className="memory-grid"><form className="capture-card" onSubmit={save}><span className="eyebrow">QUICK CAPTURE</span><textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Write a useful note, correction, or resource…" aria-label="Memory note" /><button className="primary" disabled={!note.trim()}>Save to memory</button></form><section className="panel memory-list"><div className="memory-search"><input value={query} onChange={e => { setQuery(e.target.value); void load(e.target.value); }} placeholder="Search your memory" aria-label="Search memory" /></div>{memoryError && <p className="form-error">{memoryError}</p>}{items.length ? items.map(item => <article key={item.id}><span>{item.kind}</span><p>{item.content}</p></article>) : <Empty icon="◇" title="Memory is empty" copy="Capture first note. Ordinary chat is never saved automatically." />}</section></div></div>;
 }
+
+function InlineMarkup({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+  return <>{parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("`") && part.endsWith("`")) return <code key={index}>{part.slice(1, -1)}</code>;
+    return <span key={index}>{part}</span>;
+  })}</>;
+}
+
+function splitTableRow(line: string) {
+  return line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim());
+}
+
+function isTableDivider(line: string) {
+  const cells = splitTableRow(line);
+  return cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
+}
+
+export function StructuredAnswer({ text, streaming = false }: { text: string; streaming?: boolean }) {
+  if (!text) return <div className="answer-loading" aria-label="Zipity is thinking"><i /><i /><i /></div>;
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    if (!line.trim()) { index += 1; continue; }
+
+    const fence = line.match(/^```([\w-]*)\s*$/);
+    if (fence) {
+      const code: string[] = []; index += 1;
+      while (index < lines.length && !(lines[index] ?? "").startsWith("```")) { code.push(lines[index] ?? ""); index += 1; }
+      if (index < lines.length) index += 1;
+      blocks.push(<pre className="answer-code" key={`code-${index}`}><span>{fence[1] || "code"}</span><code>{code.join("\n")}</code></pre>);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const content = <InlineMarkup text={heading[2] ?? ""} />;
+      blocks.push((heading[1] ?? "").length === 1 ? <h3 key={`h-${index}`}>{content}</h3> : <h4 key={`h-${index}`}>{content}</h4>);
+      index += 1; continue;
+    }
+
+    if (line.includes("|") && index + 1 < lines.length && isTableDivider(lines[index + 1] ?? "")) {
+      const headers = splitTableRow(line); const rows: string[][] = []; index += 2;
+      while (index < lines.length && (lines[index] ?? "").includes("|") && (lines[index] ?? "").trim()) { rows.push(splitTableRow(lines[index] ?? "")); index += 1; }
+      blocks.push(<div className="answer-table-wrap" key={`table-${index}`}><table><thead><tr>{headers.map((cell, cellIndex) => <th key={cellIndex}><InlineMarkup text={cell} /></th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{headers.map((_, cellIndex) => <td key={cellIndex}><InlineMarkup text={row[cellIndex] ?? ""} /></td>)}</tr>)}</tbody></table></div>);
+      continue;
+    }
+
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      const items: string[] = []; const matcher = /^\s*\d+[.)]\s+(.+)$/;
+      while (index < lines.length) {
+        const item = (lines[index] ?? "").match(matcher); if (!item) break;
+        let content = item[1] ?? ""; index += 1; const detail: string[] = [];
+        while (index < lines.length && /^\s{2,}\S/.test(lines[index] ?? "") && !(lines[index] ?? "").match(matcher)) {
+          detail.push((lines[index] ?? "").replace(/^\s*[-*]?\s*/, "")); index += 1;
+        }
+        if (detail.length) content += ` — ${detail.join(" ")}`;
+        items.push(content);
+        let nextItem = index; while (nextItem < lines.length && !(lines[nextItem] ?? "").trim()) nextItem += 1;
+        if ((lines[nextItem] ?? "").match(matcher)) index = nextItem;
+      }
+      const children = items.map((item, itemIndex) => <li key={itemIndex}><InlineMarkup text={item} /></li>);
+      blocks.push(<ol key={`list-${index}`}>{children}</ol>);
+      continue;
+    }
+
+    const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+    if (unordered) {
+      const items: string[] = []; const matcher = /^\s*[-*]\s+(.+)$/;
+      while (index < lines.length) { const item = (lines[index] ?? "").match(matcher); if (!item) break; items.push(item[1] ?? ""); index += 1; }
+      blocks.push(<ul key={`list-${index}`}>{items.map((item, itemIndex) => <li key={itemIndex}><InlineMarkup text={item} /></li>)}</ul>);
+      continue;
+    }
+
+    if (line.startsWith("> ")) {
+      const quote: string[] = [];
+      while (index < lines.length && (lines[index] ?? "").startsWith("> ")) { quote.push((lines[index] ?? "").slice(2)); index += 1; }
+      blocks.push(<blockquote key={`quote-${index}`}><InlineMarkup text={quote.join(" ")} /></blockquote>);
+      continue;
+    }
+
+    if (/^-{3,}$/.test(line.trim())) { blocks.push(<hr key={`rule-${index}`} />); index += 1; continue; }
+
+    const paragraph: string[] = [];
+    while (index < lines.length && (lines[index] ?? "").trim() && !/^(#{1,3})\s|^```|^\s*[-*]\s+|^\s*\d+[.)]\s+|^> /.test(lines[index] ?? "")) {
+      if (index + 1 < lines.length && (lines[index] ?? "").includes("|") && isTableDivider(lines[index + 1] ?? "")) break;
+      paragraph.push((lines[index] ?? "").trim()); index += 1;
+    }
+    if (paragraph.length) blocks.push(<p key={`p-${index}`}><InlineMarkup text={paragraph.join(" ")} /></p>);
+    else index += 1;
+  }
+  return <div className="answer-body">{blocks}{streaming && <span className="stream-caret" aria-hidden="true" />}</div>;
+}
+
+function plainSpeech(text: string) {
+  return text.replace(/```[\s\S]*?```/g, match => match.replace(/```[\w-]*\n?|```/g, ""))
+    .replace(/^#{1,3}\s+/gm, "").replace(/^\s*[-*]\s+/gm, "").replace(/^\s*\d+[.)]\s+/gm, "")
+    .replace(/\*\*|`|^>\s?/gm, "").replace(/\|/g, ", ").trim();
+}
+
 function Assistant() {
-  const [message, setMessage] = useState(""); const [reply, setReply] = useState("");
+  type Turn = { role: "user" | "assistant"; content: string };
+  const [message, setMessage] = useState(""); const [turns, setTurns] = useState<Turn[]>([]);
   const [sending, setSending] = useState(false); const [chatError, setChatError] = useState("");
-  async function send(event: FormEvent) {
-    event.preventDefault(); if (!message.trim() || sending) return;
-    setSending(true); setChatError(""); setReply("");
-    try { const result = await api<{ message: string }>("/assistant/chat", { method: "POST", body: JSON.stringify({ message }) }); setReply(result.message); }
-    catch (reason) { setChatError(reason instanceof Error ? reason.message : "Assistant unavailable"); }
+  const [remember, setRemember] = useState(false); const [contextCount, setContextCount] = useState(0);
+
+  async function sendPrompt(rawPrompt: string, readReplyAloud = false) {
+    const prompt = rawPrompt.trim(); if (!prompt || sending) return;
+    const history = turns.slice(-20); const assistantIndex = history.length + 1;
+    setTurns([...history, { role: "user", content: prompt }, { role: "assistant", content: "" }]);
+    setMessage(""); setSending(true); setChatError(""); setContextCount(0);
+    try {
+      const token = await sessionToken();
+      const response = await fetch(`${API}/assistant/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ message: prompt, history, use_memory: true, remember }),
+      });
+      if (!response.ok || !response.body) throw new Error("Assistant stream unavailable");
+      const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ""; let spokenAnswer = ""; let pendingDelta = ""; let updateFrame = 0;
+      const flushDelta = () => { if (!pendingDelta) return; const delta = pendingDelta; pendingDelta = ""; setTurns(items => items.map((item, index) => index === assistantIndex ? { ...item, content: item.content + delta } : item)); };
+      while (true) {
+        const { value, done } = await reader.read(); if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split("\n\n"); buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          const line = frame.split("\n").find(item => item.startsWith("data:")); if (!line) continue;
+          const payload = JSON.parse(line.slice(5).trim()) as { type: string; text?: string; count?: number; message?: string };
+          if (payload.type === "context") setContextCount(payload.count ?? 0);
+          if (payload.type === "error") throw new Error(payload.message ?? "Assistant failed");
+          if (payload.type === "delta" && payload.text) { spokenAnswer += payload.text; pendingDelta += payload.text; if (!updateFrame) updateFrame = window.requestAnimationFrame(() => { updateFrame = 0; flushDelta(); }); }
+        }
+      }
+      if (updateFrame) window.cancelAnimationFrame(updateFrame); flushDelta();
+      if (readReplyAloud && spokenAnswer.trim()) await speak(plainSpeech(spokenAnswer));
+    } catch (reason) { setChatError(reason instanceof Error ? reason.message : "Assistant unavailable"); }
     finally { setSending(false); }
   }
-  async function speak() {
+
+  async function send(event: FormEvent) { event.preventDefault(); await sendPrompt(message); }
+
+  useEffect(() => {
+    const voiceQuery = (event: Event) => {
+      const text = (event as CustomEvent<{ text?: string }>).detail?.text?.trim();
+      if (text) { setMessage(text); void sendPrompt(text, true); }
+    };
+    window.addEventListener("fastlearner:voice-query", voiceQuery);
+    return () => window.removeEventListener("fastlearner:voice-query", voiceQuery);
+  });
+
+  async function speak(text: string) {
     try {
-      const token = await sessionToken(); const response = await fetch(`${API}/assistant/speech`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ text: reply }) });
-      if (!response.ok) throw new Error("Add ElevenLabs key to enable voice");
+      const token = await sessionToken(); const response = await fetch(`${API}/assistant/speech/stream`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ text }) });
+      if (!response.ok) throw new Error("Voice unavailable");
       const audio = new Audio(URL.createObjectURL(await response.blob())); await audio.play();
     } catch (reason) { setChatError(reason instanceof Error ? reason.message : "Speech unavailable"); }
   }
-  return <div className="assistant-page"><div className="assistant-intro"><div className="assistant-orb">✦</div><span className="eyebrow">AI STUDY PARTNER</span><h2>What are we learning today?</h2><p>Ask for explanations, a study plan, quiz questions, or help breaking down work.</p></div>{reply && <article className="assistant-reply"><span>FASTLEARNER</span><p>{reply}</p><button className="small-button" onClick={() => void speak()}>▶ Read aloud</button></article>}{chatError && <p className="form-error assistant-error">{chatError}</p>}<form className="prompt-box" onSubmit={send}><textarea value={message} onChange={e => setMessage(e.target.value)} aria-label="Message FastLearner" placeholder="Ask anything about your work…" /><div><span>Baseten · GPT-OSS 120B</span><button className="send" disabled={!message.trim() || sending} aria-label="Send">{sending ? "…" : "↑"}</button></div></form></div>;
+
+  return <div className="assistant-page"><div className="assistant-intro"><div className={`assistant-orb ${sending ? "thinking" : ""}`}><img src="/zipity-mark.png" alt="" /></div><span className="eyebrow">ZIPITY · AI STUDY PARTNER</span><h2>{turns.length ? "Learning together" : "What are we learning today?"}</h2><p>Clear answers, useful structure, and next steps grounded in your saved context.</p></div><div className="conversation">{turns.map((turn, index) => <article className={`chat-turn ${turn.role}`} key={index}><header className="turn-header">{turn.role === "assistant" ? <img src="/zipity-mark.png" alt="" /> : <span>Y</span>}<div><strong>{turn.role === "assistant" ? "Zipity" : "You"}</strong><small>{turn.role === "assistant" && sending && index === turns.length - 1 ? "Building your answer…" : turn.role === "assistant" ? "Structured response" : "Question"}</small></div></header>{turn.role === "assistant" ? <StructuredAnswer text={turn.content} streaming={sending && index === turns.length - 1} /> : <p className="user-message">{turn.content}</p>}{turn.role === "assistant" && turn.content && <footer className="turn-actions"><button className="small-button" onClick={() => void speak(plainSpeech(turn.content))}>▶ Read aloud</button></footer>}</article>)}</div>{contextCount > 0 && <p className="grounding-note">◇ Grounded with {contextCount} relevant memor{contextCount === 1 ? "y" : "ies"}</p>}{chatError && <p className="form-error assistant-error">{chatError}</p>}<form className="prompt-box" onSubmit={send}><textarea value={message} onChange={e => setMessage(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} aria-label="Message Zipity" placeholder="Ask Zipity anything about your work…" /><div><label className="remember-toggle"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} /> Remember this conversation</label><span>Baseten streaming · ElevenLabs Flash</span><button className="send" disabled={!message.trim() || sending} aria-label="Send">{sending ? "…" : "↑"}</button></div></form></div>;
 }
 
 function Empty({ icon, title, copy }: { icon: string; title: string; copy: string }) { return <div className="empty"><span>{icon}</span><strong>{title}</strong><small>{copy}</small></div>; }

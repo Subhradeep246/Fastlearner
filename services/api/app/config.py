@@ -84,7 +84,8 @@ class Settings(BaseSettings):
     ai_request_timeout_seconds: float = 30.0
     elevenlabs_api_key: SecretStr | None = None
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
-    elevenlabs_model_id: str = "eleven_multilingual_v2"
+    elevenlabs_model_id: str = "eleven_flash_v2_5"
+    elevenlabs_stt_model_id: str = "scribe_v2"
     app_encryption_key: SecretStr | None = None
     session_signing_secret: SecretStr | None = None
 

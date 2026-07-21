@@ -1,4 +1,4 @@
-"""Canonical relational persistence for FastLearner."""
+"""Canonical relational persistence for Zipity."""
 
 from app.persistence.models import Base, metadata
 

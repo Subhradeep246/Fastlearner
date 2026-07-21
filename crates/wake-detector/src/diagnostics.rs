@@ -28,19 +28,32 @@ pub struct AggregateDiagnostics {
 impl AggregateDiagnostics {
     #[must_use]
     pub const fn new(enabled: bool) -> Self {
-        Self { enabled, snapshot: AggregateDiagnosticSnapshot {
-            evaluations: 0, expected_detections: 0, detected_events: 0,
-            false_positives: 0, false_negatives: 0,
-            last_evaluation_at_ms: None, config_bucket: None,
-        } }
+        Self {
+            enabled,
+            snapshot: AggregateDiagnosticSnapshot {
+                evaluations: 0,
+                expected_detections: 0,
+                detected_events: 0,
+                false_positives: 0,
+                false_negatives: 0,
+                last_evaluation_at_ms: None,
+                config_bucket: None,
+            },
+        }
     }
 
     #[must_use]
-    pub const fn enabled(&self) -> bool { self.enabled }
+    pub const fn enabled(&self) -> bool {
+        self.enabled
+    }
 
-    pub fn set_enabled(&mut self, enabled: bool) { self.enabled = enabled; }
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
 
-    pub fn clear(&mut self) { self.snapshot = AggregateDiagnosticSnapshot::default(); }
+    pub fn clear(&mut self) {
+        self.snapshot = AggregateDiagnosticSnapshot::default();
+    }
 
     /// Records only expected/detected labels and a timestamp after explicit opt-in.
     pub fn record_evaluation(
@@ -50,22 +63,34 @@ impl AggregateDiagnostics {
         timestamp_ms: u64,
         bucket: DiagnosticConfigBucket,
     ) {
-        if !self.enabled { return; }
+        if !self.enabled {
+            return;
+        }
         self.snapshot.evaluations = self.snapshot.evaluations.saturating_add(1);
-        self.snapshot.expected_detections = self.snapshot.expected_detections
+        self.snapshot.expected_detections = self
+            .snapshot
+            .expected_detections
             .saturating_add(u64::from(expected));
-        self.snapshot.detected_events = self.snapshot.detected_events
+        self.snapshot.detected_events = self
+            .snapshot
+            .detected_events
             .saturating_add(u64::from(detected));
-        self.snapshot.false_positives = self.snapshot.false_positives
+        self.snapshot.false_positives = self
+            .snapshot
+            .false_positives
             .saturating_add(u64::from(!expected && detected));
-        self.snapshot.false_negatives = self.snapshot.false_negatives
+        self.snapshot.false_negatives = self
+            .snapshot
+            .false_negatives
             .saturating_add(u64::from(expected && !detected));
         self.snapshot.last_evaluation_at_ms = Some(timestamp_ms);
         self.snapshot.config_bucket = Some(bucket);
     }
 
     #[must_use]
-    pub const fn snapshot(&self) -> AggregateDiagnosticSnapshot { self.snapshot }
+    pub const fn snapshot(&self) -> AggregateDiagnosticSnapshot {
+        self.snapshot
+    }
 }
 
 #[cfg(test)]

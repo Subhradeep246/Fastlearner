@@ -93,6 +93,9 @@ export class CompanionWakeController {
   private state: CompanionState = INITIAL_STATE;
   private readonly listeners = new Set<Listener>();
   private readonly unsubscribers: Array<() => void> = [];
+  private generation = 0;
+  private initialization: { generation: number; promise: Promise<void> } | null = null;
+  private initialized = false;
   private disposed = false;
 
   constructor(private readonly bridge: NativeBridge) {}
@@ -116,32 +119,94 @@ export class CompanionWakeController {
    * call when running without the native shell: the keyboard/text flow is kept
    * available and errors are surfaced as recoverable rather than thrown.
    */
-  async initialize(): Promise<void> {
+  initialize(): Promise<void> {
+    if (!this.disposed && this.initialized) {
+      return Promise.resolve();
+    }
+    if (!this.disposed && this.initialization) {
+      return this.initialization.promise;
+    }
+
+    this.disposed = false;
+    const generation = ++this.generation;
+    const promise = this.initializeGeneration(generation).finally(() => {
+      if (this.initialization?.generation !== generation) return;
+      this.initialization = null;
+      if (this.isGenerationActive(generation)) {
+        this.initialized = true;
+      }
+    });
+    this.initialization = { generation, promise };
+    return promise;
+  }
+
+  private async initializeGeneration(generation: number): Promise<void> {
     try {
       const capabilities = await this.bridge.getCapabilities();
+      if (!this.isGenerationActive(generation)) return;
       this.patch({ permission: capabilities.microphonePermission });
       if (capabilities.recoverableErrors.length > 0) {
         this.patch({ recoverableMessage: capabilities.recoverableErrors.join("; ") });
       }
     } catch (error) {
+      if (!this.isGenerationActive(generation)) return;
       this.patch({ recoverableMessage: normalizeBridgeError(error).message });
     }
 
     try {
       const config = await this.bridge.getWakeConfig();
+      if (!this.isGenerationActive(generation)) return;
       this.applyConfig(config);
     } catch {
+      if (!this.isGenerationActive(generation)) return;
       // No native wake config (e.g. web/test). Keyboard/text flow remains.
     }
 
-    this.unsubscribers.push(
-      await this.bridge.onWakeDetected((event) => this.handleWakeDetected(event)),
-      await this.bridge.onWakeState((status) => this.applyLifecycleStatus(status)),
-      await this.bridge.onPermissionChanged((state) => {
-        void this.applyPermission(state);
-      }),
-      await this.bridge.onSyncState((state) => this.applySyncState(state)),
-    );
+    if (!this.isGenerationActive(generation)) return;
+    await Promise.all([
+      this.registerListener(generation, () =>
+        this.bridge.onWakeDetected(() => {
+          if (this.isGenerationActive(generation)) {
+            void this.wake("native", generation);
+          }
+        }),
+      ),
+      this.registerListener(generation, () =>
+        this.bridge.onWakeState((status) => {
+          if (this.isGenerationActive(generation)) this.applyLifecycleStatus(status);
+        }),
+      ),
+      this.registerListener(generation, () =>
+        this.bridge.onPermissionChanged((state) => {
+          if (this.isGenerationActive(generation)) {
+            void this.applyPermission(state, generation);
+          }
+        }),
+      ),
+      this.registerListener(generation, () =>
+        this.bridge.onSyncState((state) => {
+          if (this.isGenerationActive(generation)) this.applySyncState(state);
+        }),
+      ),
+    ]);
+  }
+
+  private async registerListener(
+    generation: number,
+    register: () => Promise<() => void>,
+  ): Promise<void> {
+    try {
+      const unsubscribe = await register();
+      if (!this.isGenerationActive(generation)) {
+        this.safeUnsubscribe(unsubscribe);
+        return;
+      }
+      this.unsubscribers.push(unsubscribe);
+    } catch (error) {
+      if (this.isGenerationActive(generation)) {
+        this.patch({ recoverableMessage: normalizeBridgeError(error).message });
+      }
+    }
   }
 
   /** Applies a wake configuration snapshot (keyboard-only, device selection). */
@@ -168,7 +233,8 @@ export class CompanionWakeController {
    * Triggers the wake flow from a native event or a keyboard shortcut. Opens the
    * centered overlay and enters the confirmation state.
    */
-  async wake(source: "native" | "keyboard"): Promise<void> {
+  async wake(source: "native" | "keyboard", generation?: number): Promise<void> {
+    if (generation !== undefined && !this.isGenerationActive(generation)) return;
     if (this.state.wakePaused && source === "native") {
       return;
     }
@@ -179,13 +245,14 @@ export class CompanionWakeController {
       listening: false,
       error: null,
     });
-    await this.positionOverlay();
+    await this.positionOverlay(generation);
   }
 
   /** Requests centered overlay placement from the shell (Requirement 5.2). */
-  async positionOverlay(): Promise<OverlayPlacement | null> {
+  async positionOverlay(generation?: number): Promise<OverlayPlacement | null> {
     try {
       const placement = await this.bridge.openOverlay();
+      if (generation !== undefined && !this.isGenerationActive(generation)) return null;
       this.patch({ placement });
       return placement;
     } catch {
@@ -271,7 +338,8 @@ export class CompanionWakeController {
    * Applies an operating-system permission change. When access is lost the
    * native stream is stopped and the keyboard/text flow remains (Req 4.11, 4.9).
    */
-  async applyPermission(state: PermissionState): Promise<void> {
+  async applyPermission(state: PermissionState, generation?: number): Promise<void> {
+    if (generation !== undefined && !this.isGenerationActive(generation)) return;
     const voiceAvailable = computeVoiceAvailable(state, this.state.keyboardOnly);
     this.patch({ permission: state, voiceAvailable });
     if (state !== "granted") {
@@ -281,6 +349,7 @@ export class CompanionWakeController {
       }
       try {
         const status = await this.bridge.reportMicrophonePermission(state);
+        if (generation !== undefined && !this.isGenerationActive(generation)) return;
         this.applyLifecycleStatus(status);
       } catch {
         // Reporting failure must not break the keyboard/text flow.
@@ -323,9 +392,25 @@ export class CompanionWakeController {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    for (const unsubscribe of this.unsubscribers) unsubscribe();
+    this.initialized = false;
+    this.initialization = null;
+    ++this.generation;
+    for (const unsubscribe of this.unsubscribers) this.safeUnsubscribe(unsubscribe);
     this.unsubscribers.length = 0;
     this.listeners.clear();
+  }
+
+  private isGenerationActive(generation: number): boolean {
+    return !this.disposed && this.generation === generation;
+  }
+
+  private safeUnsubscribe(unsubscribe: () => void): void {
+    try {
+      unsubscribe();
+    } catch {
+      // One faulty native cleanup must not prevent the remaining listeners from
+      // being detached.
+    }
   }
 
   private patch(patch: Partial<CompanionState>): void {

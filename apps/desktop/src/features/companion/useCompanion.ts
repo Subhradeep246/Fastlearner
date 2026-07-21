@@ -16,7 +16,7 @@ import {
 export interface UseCompanionResult {
   readonly state: CompanionState;
   /** Ref to attach to the overlay's primary keyboard control for focus. */
-  readonly primaryControlRef: React.RefObject<HTMLElement | null>;
+  readonly primaryControlRef: React.RefObject<HTMLButtonElement | null>;
   /** Triggers the wake flow from a keyboard shortcut or button. */
   wake: () => void;
   /** Confirms the visible wake and begins speech capture when permitted. */
@@ -37,7 +37,7 @@ export function useCompanion(bridge?: NativeBridge): UseCompanionResult {
     [bridge],
   );
   const [state, setState] = useState<CompanionState>(() => controller.getState());
-  const primaryControlRef = useRef<HTMLElement | null>(null);
+  const primaryControlRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     const unsubscribe = controller.subscribe(setState);
