@@ -62,7 +62,11 @@ class Settings(BaseSettings):
     auth_mode: Literal["local", "oidc"] = "local"
     api_host: str = "127.0.0.1"
     api_public_url: str = "http://localhost:8000/v1"
-    cors_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_allowed_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:1420,http://127.0.0.1:1420,"
+        "tauri://localhost,http://tauri.localhost"
+    )
 
     database_url: SecretStr | None = None
     redis_url: SecretStr | None = None
@@ -70,7 +74,7 @@ class Settings(BaseSettings):
     neo4j_user: str | None = None
     neo4j_password: SecretStr | None = None
 
-    ai_provider: Literal["openai", "disabled"] = "openai"
+    ai_provider: Literal["openai", "baseten", "disabled"] = "openai"
     ai_model: str | None = None
     ai_api_key: SecretStr | None = None
     embedding_model: str | None = None
@@ -78,6 +82,9 @@ class Settings(BaseSettings):
     ai_transcription_model: str | None = None
     ai_speech_model: str | None = None
     ai_request_timeout_seconds: float = 30.0
+    elevenlabs_api_key: SecretStr | None = None
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
+    elevenlabs_model_id: str = "eleven_multilingual_v2"
     app_encryption_key: SecretStr | None = None
     session_signing_secret: SecretStr | None = None
 
@@ -109,7 +116,7 @@ class Settings(BaseSettings):
             "APP_ENCRYPTION_KEY": self.app_encryption_key,
             "SESSION_SIGNING_SECRET": self.session_signing_secret,
         }
-        if self.ai_provider == "openai":
+        if self.ai_provider in {"openai", "baseten"}:
             required["AI_API_KEY"] = self.ai_api_key
         for name, value in required.items():
             if _is_missing(value):

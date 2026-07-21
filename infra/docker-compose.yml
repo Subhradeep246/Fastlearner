@@ -23,8 +23,8 @@ services:
     image: neo4j:5.26.0-community
     environment:
       NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}
-      NEO4J_USER: ${NEO4J_USER:-neo4j}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}
+      FASTLEARNER_NEO4J_USER: ${NEO4J_USER:-neo4j}
+      FASTLEARNER_NEO4J_PASSWORD: ${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}
       NEO4J_server_memory_heap_initial__size: 256m
       NEO4J_server_memory_heap_max__size: 512m
     ports:
@@ -37,8 +37,8 @@ services:
       test:
         - CMD-SHELL
         - >-
-          cypher-shell -a neo4j://localhost:7687 -u "$${NEO4J_USER}"
-          -p "$${NEO4J_PASSWORD}" "RETURN 1;" >/dev/null 2>&1
+          cypher-shell -a neo4j://localhost:7687 -u "$${FASTLEARNER_NEO4J_USER}"
+          -p "$${FASTLEARNER_NEO4J_PASSWORD}" "RETURN 1;" >/dev/null 2>&1
       interval: 10s
       timeout: 10s
       retries: 12
@@ -63,7 +63,6 @@ services:
 networks:
   fastlearner-private:
     name: fastlearner-private
-    internal: true
 
 volumes:
   fastlearner-postgres:

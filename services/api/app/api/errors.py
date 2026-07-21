@@ -16,6 +16,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.config import StartupConfigurationError
+from app.domain.ai import ProviderError
+from app.domain.memory import MemoryError
 from app.domain.identity import (
     AuthenticationError,
     AuthorizationError,
@@ -60,6 +62,10 @@ def _status_for(exc: Exception) -> int:
         exc, (StartupConfigurationError, DatabaseMigrationRequired, ApiConfigurationError)
     ):
         return status.HTTP_503_SERVICE_UNAVAILABLE
+    if isinstance(exc, ProviderError):
+        return status.HTTP_503_SERVICE_UNAVAILABLE
+    if isinstance(exc, MemoryError):
+        return status.HTTP_422_UNPROCESSABLE_ENTITY
     return status.HTTP_400_BAD_REQUEST
 
 
@@ -117,6 +123,14 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def _api_configuration_error(
         request: Request, exc: ApiConfigurationError
     ) -> JSONResponse:
+        return _json_error(request, _status_for(exc), exc.safe_payload())
+
+    @app.exception_handler(ProviderError)
+    async def _provider_error(request: Request, exc: ProviderError) -> JSONResponse:
+        return _json_error(request, _status_for(exc), exc.safe_payload())
+
+    @app.exception_handler(MemoryError)
+    async def _memory_error(request: Request, exc: MemoryError) -> JSONResponse:
         return _json_error(request, _status_for(exc), exc.safe_payload())
 
     @app.exception_handler(RequestValidationError)

@@ -127,6 +127,11 @@ class MemoryService:
         self._ranking_weights = ranking_weights or RankingWeights()
 
     # -- explicit save -----------------------------------------------------
+    def list_memories(self, actor: ActorContext, *, limit: int = 100) -> list[MemoryEpisode]:
+        self._require_memory_read(actor)
+        with self._read_repo() as repo:
+            return repo.list_episodes(actor.owner_id, limit=limit)
+
     def save_context(
         self,
         actor: ActorContext,

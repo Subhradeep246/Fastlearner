@@ -65,6 +65,8 @@ class MemoryRepository(Protocol):
 
     def get_episode(self, owner_user_id: UUID, episode_id: UUID) -> MemoryEpisode | None: ...
 
+    def list_episodes(self, owner_user_id: UUID, *, limit: int = 100) -> list[MemoryEpisode]: ...
+
     # -- source chunks (owner-filtered vector retrieval) -------------------
     def search_source_chunks(
         self,
@@ -313,6 +315,21 @@ class SqlMemoryRepository(MemoryRepository):
             )
         ).first()
         return _episode_from_row(row) if row is not None else None
+
+    def list_episodes(self, owner_user_id: UUID, *, limit: int = 100) -> list[MemoryEpisode]:
+        rows = self._connection.execute(
+            select(memory_episodes)
+            .where(
+                and_(
+                    memory_episodes.c.owner_user_id == require_owner(owner_user_id),
+                    memory_episodes.c.status == EpisodeStatus.ACTIVE.value,
+                    memory_episodes.c.deleted_at.is_(None),
+                )
+            )
+            .order_by(memory_episodes.c.created_at.desc())
+            .limit(max(1, min(limit, 200)))
+        ).all()
+        return [_episode_from_row(row) for row in rows]
 
     # -- source chunks (owner-filtered vector retrieval) -------------------
     def search_source_chunks(

@@ -9,6 +9,11 @@ from app.api.errors import register_exception_handlers
 from app.api.middleware import RequestIdMiddleware
 from app.api.routers import health as health_router
 from app.api.routers import identity as identity_router
+from app.api.routers import local_auth as local_auth_router
+from app.api.routers import work as work_router
+from app.api.routers import assistant as assistant_router
+from app.api.routers import memory as memory_router
+from app.api.routers import learning as learning_router
 from app.auth.identity import IdentityProvider, LocalIdentityProvider
 from app.auth.policy import PolicyEngine
 from app.auth.sessions import SessionSigner
@@ -83,6 +88,11 @@ def create_app(
     register_exception_handlers(application)
     application.include_router(health_router.router)
     application.include_router(identity_router.router)
+    application.include_router(local_auth_router.router)
+    application.include_router(work_router.router)
+    application.include_router(assistant_router.router)
+    application.include_router(memory_router.router)
+    application.include_router(learning_router.router)
 
     return application
 

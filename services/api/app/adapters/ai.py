@@ -544,7 +544,7 @@ def create_ai_provider(
     provider = settings.ai_provider
     if provider == "disabled":
         return DisabledAIProvider()
-    if provider == "openai":
+    if provider in {"openai", "baseten"}:
         active_transport = transport or _default_openai_transport(settings)
         return OpenAIProvider(
             active_transport,
@@ -560,7 +560,7 @@ def _default_openai_transport(settings: "Settings") -> OpenAITransport:
     api_key = settings.ai_api_key.get_secret_value() if settings.ai_api_key is not None else ""
     if not api_key:
         raise ProviderConfigurationError(
-            "AI_API_KEY is required to use the OpenAI provider.", provider=_PROVIDER_NAME
+            "AI_API_KEY is required to use the configured AI provider.", provider=settings.ai_provider
         )
     return HttpxOpenAITransport(
         api_key=api_key,
